@@ -25,6 +25,10 @@ st.set_page_config(
 # 타이틀 앞에 들어가는 마스코트 이미지 (하트 이모지 대신 사용)
 MASCOT_IMAGE_PATH = Path(__file__).parent / "public" / "img" / "미룬일.png"
 
+# AI에게 추가 질문하기 채팅의 아바타 이미지
+USER_AVATAR_PATH = Path(__file__).parent / "public" / "img" / "음.png"
+ASSISTANT_AVATAR_PATH = Path(__file__).parent / "public" / "img" / "똑똑이.png"
+
 # 모델 드롭다운의 기본 선택값 (설치돼 있지 않으면 목록의 첫 번째 모델로 폴백)
 DEFAULT_MODEL = "hermes3:8b"
 
@@ -178,6 +182,116 @@ def inject_custom_css() -> None:
             to   { opacity: 1; transform: translateY(0); }
         }
 
+        /* ── 카드별 종이 질감 (워시테이프 / 스프링노트 / 말린 모서리 / 체크무늬) ──
+           손그림 메모지 레퍼런스를 CSS만으로 흉내낸다 — 이미지 파일 없이 가볍게. */
+
+        /* 회의 요약: 핑크 체크(깅엄) 무늬 배경 */
+        .st-key-card_summary {
+            background-image:
+                repeating-linear-gradient(0deg, rgba(255, 143, 177, 0.14) 0 5px, transparent 5px 22px),
+                repeating-linear-gradient(90deg, rgba(255, 143, 177, 0.14) 0 5px, transparent 5px 22px);
+            background-color: #FFFFFF;
+        }
+
+        /* 핵심 내용: 핑크 워시테이프 */
+        .st-key-card_highlights {
+            position: relative;
+            overflow: visible !important;
+        }
+        .st-key-card_highlights::before {
+            content: "";
+            position: absolute;
+            top: -12px;
+            left: 28px;
+            width: 64px;
+            height: 24px;
+            background: repeating-linear-gradient(45deg, #FFD6E7, #FFD6E7 6px, #FFE9F1 6px, #FFE9F1 12px);
+            transform: rotate(-5deg);
+            border-radius: 3px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            pointer-events: none;
+        }
+
+        /* 해야 할 일: 스프링노트 (보라 제본 라인 + 구멍) */
+        .st-key-card_actions {
+            position: relative;
+            padding-left: 2.6rem !important;
+        }
+        .st-key-card_actions::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 1.9rem;
+            background: #E7D5F5;
+            border-radius: 18px 0 0 18px;
+        }
+        .st-key-card_actions::after {
+            content: "";
+            position: absolute;
+            left: 0.5rem;
+            top: 16px;
+            bottom: 16px;
+            width: 10px;
+            background-image: radial-gradient(circle, #FFFFFF 4px, transparent 4.5px);
+            background-size: 10px 24px;
+            background-repeat: repeat-y;
+        }
+
+        /* 담당자: 말린 모서리 민트 메모지 */
+        .st-key-card_assignees {
+            background: #E9F7F5;
+            position: relative;
+        }
+        .st-key-card_assignees::after {
+            content: "";
+            position: absolute;
+            right: 0;
+            bottom: 0;
+            width: 30px;
+            height: 30px;
+            background: linear-gradient(135deg, transparent 50%, rgba(0, 0, 0, 0.08) 50%);
+            border-bottom-right-radius: 18px;
+            pointer-events: none;
+        }
+
+        /* 마감일: 크림색 배경 + 라벤더 워시테이프 */
+        .st-key-card_deadlines {
+            background: #FFFBEF;
+            position: relative;
+            overflow: visible !important;
+        }
+        .st-key-card_deadlines::before {
+            content: "";
+            position: absolute;
+            top: -12px;
+            right: 28px;
+            width: 64px;
+            height: 24px;
+            background: repeating-linear-gradient(45deg, #D8CCF0, #D8CCF0 6px, #EFE9FA 6px, #EFE9FA 12px);
+            transform: rotate(5deg);
+            border-radius: 3px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            pointer-events: none;
+        }
+
+        /* 이메일 초안: 말린 모서리 핑크 편지지 */
+        .st-key-card_email {
+            position: relative;
+        }
+        .st-key-card_email::after {
+            content: "";
+            position: absolute;
+            right: 0;
+            bottom: 0;
+            width: 30px;
+            height: 30px;
+            background: linear-gradient(135deg, transparent 50%, rgba(255, 143, 177, 0.25) 50%);
+            border-bottom-right-radius: 18px;
+            pointer-events: none;
+        }
+
         /* 메모 카드 제목 */
         .memo-card-title {
             font-size: 1.15rem;
@@ -223,6 +337,20 @@ def inject_custom_css() -> None:
         /* 안내/에러 박스도 살짝 둥글게 */
         div[data-testid="stAlert"] {
             border-radius: 16px;
+        }
+
+        /* AI 추가 질문 채팅의 아바타(음.png / 똑똑이.png) 크게 */
+        [data-testid="stChatMessageAvatarCustom"],
+        [data-testid="stChatMessageAvatarUser"],
+        [data-testid="stChatMessageAvatarAssistant"] {
+            width: 3rem !important;
+            height: 3rem !important;
+            border: 2px solid #F6C7D8;
+        }
+        [data-testid="stChatMessageAvatarCustom"] img {
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: cover;
         }
         </style>
         """
@@ -363,9 +491,13 @@ def sanitize_filename(text: str) -> str:
     return cleaned or "회의_메모"
 
 
-def render_memo_card(icon: str, title: str, render_body) -> None:
-    """아이콘 + 제목 + 본문(콜백)을 메모지 카드 하나로 렌더링한다."""
-    card_key = f"card_{title}"
+def render_memo_card(icon: str, title: str, render_body, key_suffix: str | None = None) -> None:
+    """아이콘 + 제목 + 본문(콜백)을 메모지 카드 하나로 렌더링한다.
+
+    key_suffix: CSS에서 카드별 종이 질감(워시테이프/스프링노트 등)을 정확히
+    타겟팅하기 위한 영문 슬러그. 생략하면 title을 그대로 써서(기존 동작 유지).
+    """
+    card_key = f"card_{key_suffix or title}"
     with st.container(key=card_key, border=False):
         st.markdown(f'<div class="memo-card-title">{icon} {title}</div>', unsafe_allow_html=True)
         render_body()
@@ -413,9 +545,13 @@ def render_qa_chat(transcript: str, model: str) -> None:
     """
     st.markdown('<div class="qa-section-title">💬 AI에게 추가 질문하기</div>', unsafe_allow_html=True)
 
+    user_avatar = str(USER_AVATAR_PATH) if USER_AVATAR_PATH.exists() else None
+    assistant_avatar = str(ASSISTANT_AVATAR_PATH) if ASSISTANT_AVATAR_PATH.exists() else None
+    avatars = {"user": user_avatar, "assistant": assistant_avatar}
+
     chat_history = st.session_state.setdefault("qa_history", [])
     for turn in chat_history:
-        with st.chat_message(turn["role"]):
+        with st.chat_message(turn["role"], avatar=avatars[turn["role"]]):
             st.markdown(turn["content"])
 
     question = st.chat_input("예) 결정 사항만 정리해줘 / 담당자별 업무만 알려줘")
@@ -423,10 +559,10 @@ def render_qa_chat(transcript: str, model: str) -> None:
         return
 
     chat_history.append({"role": "user", "content": question})
-    with st.chat_message("user"):
+    with st.chat_message("user", avatar=avatars["user"]):
         st.markdown(question)
 
-    with st.chat_message("assistant"):
+    with st.chat_message("assistant", avatar=avatars["assistant"]):
         with st.spinner("답변을 준비하고 있어요... 🩷"):
             try:
                 answer = answer_question(transcript, question, chat_history[:-1], model=model)
@@ -457,40 +593,58 @@ def render_results(raw_markdown: str) -> None:
         render_stats_metrics(len(participants), len(action_rows), real_deadline_count, len(keywords))
         render_stats_chart(len(participants), len(action_rows), real_deadline_count, len(keywords))
 
-    render_memo_card("📊", "회의 통계", render_stats_body)
-    render_memo_card("🏷️", "키워드", lambda: render_keyword_tags(keywords))
+    render_memo_card("📊", "회의 통계", render_stats_body, key_suffix="stats")
+    render_memo_card("🏷️", "키워드", lambda: render_keyword_tags(keywords), key_suffix="keywords")
 
     col1, col2 = st.columns(2)
     with col1:
-        render_memo_card("📒", "회의 요약", lambda: st.markdown(summary or "_요약 내용이 없어요._"))
+        render_memo_card(
+            "📒", "회의 요약", lambda: st.markdown(summary or "_요약 내용이 없어요._"), key_suffix="summary"
+        )
     with col2:
-        render_memo_card("🩷", "핵심 내용", lambda: st.markdown(highlights or "_핵심 내용이 없어요._"))
+        render_memo_card(
+            "🩷", "핵심 내용", lambda: st.markdown(highlights or "_핵심 내용이 없어요._"), key_suffix="highlights"
+        )
 
     render_memo_card(
         "📌",
         "해야 할 일",
         lambda: st.markdown(action_item_md or "_Action Item이 없어요._"),
+        key_suffix="actions",
     )
 
     col3, col4 = st.columns(2)
     with col3:
         assignees = sorted({row[0] for row in action_rows if row[0]}) or ["미정"]
-        render_memo_card("👤", "담당자", lambda: st.markdown("  \n".join(f"- {name}" for name in assignees)))
+        render_memo_card(
+            "👤",
+            "담당자",
+            lambda: st.markdown("  \n".join(f"- {name}" for name in assignees)),
+            key_suffix="assignees",
+        )
     with col4:
         deadlines = sorted({row[2] for row in action_rows if row[2]}) or ["미정"]
-        render_memo_card("📅", "마감일", lambda: st.markdown("  \n".join(f"- {date}" for date in deadlines)))
+        render_memo_card(
+            "📅",
+            "마감일",
+            lambda: st.markdown("  \n".join(f"- {date}" for date in deadlines)),
+            key_suffix="deadlines",
+        )
 
     render_memo_card(
         "💌",
         "이메일 초안",
         lambda: st.markdown(email_draft or "_이메일 초안이 없어요._"),
+        key_suffix="email",
     )
 
     st.write("")
     try:
         image_bytes = render_summary_image(sections, action_rows, meeting_title=title)
-    except Exception:
+    except Exception as exc:
         st.warning("이미지를 만드는 데 실패했어요. 텍스트 결과는 위에서 그대로 확인할 수 있어요.", icon="🖼️")
+        with st.expander("에러 내용 보기"):
+            st.code(f"{type(exc).__name__}: {exc}")
         return
 
     st.download_button(
