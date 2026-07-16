@@ -4,6 +4,7 @@
 없이 오프라인에서도 항상 동일하게 동작하게 하기 위함.
 """
 
+import glob
 import io
 from pathlib import Path
 
@@ -26,6 +27,7 @@ SUBTITLE_LINE_HEIGHT = 26
 TITLE_SUBTITLE_GAP = 12
 
 # Windows(맑은 고딕) / macOS / Linux(나눔고딕) 순으로 한글 지원 폰트를 찾는다.
+# Streamlit Cloud(Linux) 배포 시에는 packages.txt의 fonts-nanum이 이 폰트를 설치해준다.
 _FONT_CANDIDATES_REGULAR = [
     "C:/Windows/Fonts/malgun.ttf",
     "/System/Library/Fonts/AppleSDGothicNeo.ttc",
@@ -36,13 +38,27 @@ _FONT_CANDIDATES_BOLD = [
     "/System/Library/Fonts/AppleSDGothicNeo.ttc",
     "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
 ]
+# 위 정확한 경로가 하나도 없을 때 쓰는 마지막 폴백 — 배포 환경마다 나눔고딕
+# 파일명이 조금씩 달라질 수 있어서, 시스템 폰트 폴더를 패턴으로 뒤진다.
+_FONT_GLOB_BOLD = ["/usr/share/fonts/**/*Nanum*Bold*.ttf", "/usr/share/fonts/**/*Nanum*.ttf"]
+_FONT_GLOB_REGULAR = ["/usr/share/fonts/**/*Nanum*.ttf"]
 
 
-def _load_font(candidates: list[str], size: int) -> ImageFont.FreeTypeFont:
-    """후보 경로 중 존재하는 첫 폰트를 로드한다. 하나도 없으면 PIL 기본 폰트로 폴백한다."""
+def _load_font(candidates: list[str], size: int, glob_patterns: list[str] | None = None) -> ImageFont.FreeTypeFont:
+    """후보 경로 중 존재하는 첫 폰트를 로드한다.
+
+    정확한 경로가 하나도 없으면 glob_patterns로 시스템 폰트 폴더를 뒤져 한글 지원
+    폰트를 찾는다. 그마저 없으면 PIL 기본 폰트로 폴백한다(이 경우 한글이 깨져 보인다).
+    """
     for path in candidates:
         if Path(path).exists():
             return ImageFont.truetype(path, size)
+
+    for pattern in glob_patterns or []:
+        matches = sorted(glob.glob(pattern, recursive=True))
+        if matches:
+            return ImageFont.truetype(matches[0], size)
+
     return ImageFont.load_default()
 
 
@@ -129,9 +145,9 @@ def render_summary_image(
     meeting_title이 주어지면(AI가 생성한 회의 제목) 이미지 맨 위 큰 제목으로 쓰고,
     없으면 "회의 메모"로 대체한다.
     """
-    font_title = _load_font(_FONT_CANDIDATES_BOLD, 32)
-    font_heading = _load_font(_FONT_CANDIDATES_BOLD, 21)
-    font_body = _load_font(_FONT_CANDIDATES_REGULAR, 17)
+    font_title = _load_font(_FONT_CANDIDATES_BOLD, 32, _FONT_GLOB_BOLD)
+    font_heading = _load_font(_FONT_CANDIDATES_BOLD, 21, _FONT_GLOB_BOLD)
+    font_body = _load_font(_FONT_CANDIDATES_REGULAR, 17, _FONT_GLOB_REGULAR)
 
     measure_draw = ImageDraw.Draw(Image.new("RGB", (10, 10)))
     max_text_width = CANVAS_WIDTH - 2 * PADDING - 2 * CARD_PADDING - 18  # 아이콘 원 만큼 빼기
