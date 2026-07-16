@@ -2,3 +2,8 @@ streamlit>=1.57
 requests>=2.31
 pypdf>=5.0
 Pillow>=10.0
+python-dotenv>=1.0
+pandas>=2.0
+
+# MEMOMATE_PROVIDER=gemini로 전환할 때만 필요 (기본 Ollama 경로에는 불필요)
+google-genai>=0.1

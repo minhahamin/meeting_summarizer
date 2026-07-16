@@ -8,10 +8,11 @@ import io
 import re
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 from pypdf import PdfReader
 
-from ai import OllamaConnectionError, OllamaGenerationError, get_available_models, summarize_meeting
+from ai import LLMConnectionError, LLMGenerationError, answer_question, get_available_models, summarize_meeting
 from image_export import render_summary_image
 
 # ── 페이지 기본 설정 ──────────────────────────────────────────────
@@ -22,14 +23,17 @@ st.set_page_config(
 )
 
 # 타이틀 앞에 들어가는 마스코트 이미지 (하트 이모지 대신 사용)
-MASCOT_IMAGE_PATH = Path(__file__).parent / "public" / "img" / "견뎌이겨내.png"
+MASCOT_IMAGE_PATH = Path(__file__).parent / "public" / "img" / "미룬일.png"
+
+# 모델 드롭다운의 기본 선택값 (설치돼 있지 않으면 목록의 첫 번째 모델로 폴백)
+DEFAULT_MODEL = "hermes3:8b"
 
 # Action Item 표에서 담당자/마감일 열을 뽑아낼 때 쓰는 정규식 (헤더·구분선 행 제외)
 _TABLE_ROW_PATTERN = re.compile(r"^\|(.+)\|(.+)\|(.+)\|$")
 _TABLE_SEPARATOR_PATTERN = re.compile(r"^[\s\-:|]+$")
 
 # 결과 Markdown에서 잘라낼 섹션 헤더와, 각 섹션을 표시할 카드 정보
-SECTION_HEADERS = ["회의 요약", "핵심 내용", "Action Item", "이메일 초안"]
+SECTION_HEADERS = ["회의 제목", "참석자", "회의 요약", "핵심 내용", "Action Item", "키워드", "이메일 초안"]
 
 
 def inject_custom_css() -> None:
@@ -182,6 +186,40 @@ def inject_custom_css() -> None:
             margin-bottom: 0.6rem;
         }
 
+        /* 회의 제목 (결과 화면 가장 상단) */
+        .meeting-title-text {
+            font-family: 'Jua', sans-serif;
+            font-size: 1.9rem;
+            font-weight: 700;
+            line-height: 1.5;
+            color: #444444;
+            margin: 0.2rem 0 1rem 0;
+        }
+
+        /* 키워드 태그 */
+        .keyword-tag-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+        .keyword-tag {
+            background: #FFD6E7;
+            color: #a03a5c;
+            border-radius: 999px;
+            padding: 0.35rem 0.9rem;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        /* AI 추가 질문 섹션 제목 */
+        .qa-section-title {
+            font-family: 'Jua', sans-serif;
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: #444444;
+            margin: 1.6rem 0 0.8rem 0;
+        }
+
         /* 안내/에러 박스도 살짝 둥글게 */
         div[data-testid="stAlert"] {
             border-radius: 16px;
@@ -296,6 +334,35 @@ def extract_action_item_rows(action_item_markdown: str) -> list[list[str]]:
     return rows
 
 
+def extract_keywords(raw: str) -> list[str]:
+    """'#키워드1, #키워드2' 형태의 텍스트를 키워드 문자열 리스트로 만든다."""
+    if not raw:
+        return []
+    keywords = []
+    for token in re.split(r"[,\n]", raw):
+        cleaned = token.strip().lstrip("#").strip()
+        if cleaned:
+            keywords.append(cleaned)
+    return keywords
+
+
+def extract_bullet_items(raw: str) -> list[str]:
+    """'- 항목' 형태로 나열된 텍스트에서 항목 리스트를 뽑는다 (참석자 등에 재사용)."""
+    items = []
+    for line in raw.splitlines():
+        stripped = line.strip().lstrip("-•").strip()
+        if stripped and stripped != "미정":
+            items.append(stripped)
+    return items
+
+
+def sanitize_filename(text: str) -> str:
+    """회의 제목을 다운로드 파일명으로 쓸 수 있게 정리한다 (금지 문자 제거, 공백은 밑줄로)."""
+    cleaned = re.sub(r'[\\/:*?"<>|]', "", text).strip()
+    cleaned = re.sub(r"\s+", "_", cleaned)
+    return cleaned or "회의_메모"
+
+
 def render_memo_card(icon: str, title: str, render_body) -> None:
     """아이콘 + 제목 + 본문(콜백)을 메모지 카드 하나로 렌더링한다."""
     card_key = f"card_{title}"
@@ -304,15 +371,94 @@ def render_memo_card(icon: str, title: str, render_body) -> None:
         render_body()
 
 
+def render_meeting_title(title: str) -> None:
+    """회의 제목을 결과 화면 가장 위에 큼직하게 보여준다."""
+    st.markdown(f'<div class="meeting-title-text">📋 {title}</div>', unsafe_allow_html=True)
+
+
+def render_stats_metrics(participant_count: int, action_item_count: int, deadline_count: int, keyword_count: int) -> None:
+    """회의 통계 4개를 st.metric으로 나란히 보여준다."""
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("참석자 수", participant_count)
+    col2.metric("Action Item", action_item_count)
+    col3.metric("마감일", deadline_count)
+    col4.metric("키워드", keyword_count)
+
+
+def render_stats_chart(participant_count: int, action_item_count: int, deadline_count: int, keyword_count: int) -> None:
+    """회의 통계 4개를 막대그래프로 한눈에 비교할 수 있게 보여준다."""
+    chart_data = pd.DataFrame(
+        {
+            "항목": ["참석자 수", "Action Item", "마감일", "키워드"],
+            "개수": [participant_count, action_item_count, deadline_count, keyword_count],
+        }
+    ).set_index("항목")
+    st.bar_chart(chart_data, color="#FF8FB1", height=220)
+
+
+def render_keyword_tags(keywords: list[str]) -> None:
+    """키워드 리스트를 Tag(pill) 스타일 카드로 보여준다."""
+    if not keywords:
+        st.markdown("_추출된 키워드가 없어요._")
+        return
+    tags_html = "".join(f'<span class="keyword-tag">#{kw}</span>' for kw in keywords)
+    st.markdown(f'<div class="keyword-tag-row">{tags_html}</div>', unsafe_allow_html=True)
+
+
+def render_qa_chat(transcript: str, model: str) -> None:
+    """요약이 끝난 회의록을 컨텍스트로, 추가 질문에 답하는 채팅 섹션을 보여준다.
+
+    RAG나 Vector DB 없이 transcript 원문을 그대로 컨텍스트로 사용한다
+    (ai.answer_question 참고). 대화 내역은 st.session_state에 누적된다.
+    """
+    st.markdown('<div class="qa-section-title">💬 AI에게 추가 질문하기</div>', unsafe_allow_html=True)
+
+    chat_history = st.session_state.setdefault("qa_history", [])
+    for turn in chat_history:
+        with st.chat_message(turn["role"]):
+            st.markdown(turn["content"])
+
+    question = st.chat_input("예) 결정 사항만 정리해줘 / 담당자별 업무만 알려줘")
+    if not question:
+        return
+
+    chat_history.append({"role": "user", "content": question})
+    with st.chat_message("user"):
+        st.markdown(question)
+
+    with st.chat_message("assistant"):
+        with st.spinner("답변을 준비하고 있어요... 🩷"):
+            try:
+                answer = answer_question(transcript, question, chat_history[:-1], model=model)
+            except (LLMConnectionError, LLMGenerationError) as exc:
+                answer = f"⚠️ {exc}"
+        st.markdown(answer)
+
+    chat_history.append({"role": "assistant", "content": answer})
+
+
 def render_results(raw_markdown: str) -> None:
     """LLM 응답 전체를 파싱해서 메모 카드들로 렌더링한다."""
     sections = parse_sections(raw_markdown)
 
+    title = sections.get("회의 제목", "").strip() or "회의 메모"
+    participants = extract_bullet_items(sections.get("참석자", ""))
     summary = sections.get("회의 요약", "").strip()
     highlights = sections.get("핵심 내용", "").strip()
     action_item_md = sections.get("Action Item", "").strip()
+    keywords = extract_keywords(sections.get("키워드", ""))
     email_draft = sections.get("이메일 초안", "").strip()
     action_rows = extract_action_item_rows(action_item_md)
+    real_deadline_count = len({row[2] for row in action_rows if row[2] and row[2] != "미정"})
+
+    render_meeting_title(title)
+
+    def render_stats_body() -> None:
+        render_stats_metrics(len(participants), len(action_rows), real_deadline_count, len(keywords))
+        render_stats_chart(len(participants), len(action_rows), real_deadline_count, len(keywords))
+
+    render_memo_card("📊", "회의 통계", render_stats_body)
+    render_memo_card("🏷️", "키워드", lambda: render_keyword_tags(keywords))
 
     col1, col2 = st.columns(2)
     with col1:
@@ -342,7 +488,7 @@ def render_results(raw_markdown: str) -> None:
 
     st.write("")
     try:
-        image_bytes = render_summary_image(sections, action_rows)
+        image_bytes = render_summary_image(sections, action_rows, meeting_title=title)
     except Exception:
         st.warning("이미지를 만드는 데 실패했어요. 텍스트 결과는 위에서 그대로 확인할 수 있어요.", icon="🖼️")
         return
@@ -350,7 +496,7 @@ def render_results(raw_markdown: str) -> None:
     st.download_button(
         "🖼️ 메모 이미지로 저장",
         data=image_bytes,
-        file_name="memomate_summary.png",
+        file_name=f"{sanitize_filename(title)}.png",
         mime="image/png",
         key="download_image_btn",
     )
@@ -382,12 +528,15 @@ def main() -> None:
             "Ollama에 연결하지 못했어요. 로컬에서 `ollama serve`가 실행 중인지 확인해주세요.",
             icon="⚠️",
         )
-        available_models = ["llama3.2"]  # 입력 UI는 계속 보여주기 위한 폴백
+        available_models = [DEFAULT_MODEL]  # 입력 UI는 계속 보여주기 위한 폴백
+
+    default_index = available_models.index(DEFAULT_MODEL) if DEFAULT_MODEL in available_models else 0
 
     with st.container(key="input_card"):
         selected_model = st.selectbox(
             "사용할 모델",
             options=available_models,
+            index=default_index,
             help="로컬 Ollama에 설치된 모델 중 하나를 선택하세요.",
         )
         uploaded_pdf = st.file_uploader(
@@ -410,20 +559,29 @@ def main() -> None:
     if summarize_clicked:
         if not transcript.strip():
             st.warning("회의록을 먼저 입력해주세요!", icon="✍️")
-            return
+        else:
+            with st.spinner("메모를 정리하고 있어요... 🩷"):
+                try:
+                    result_markdown = summarize_meeting(transcript, model=selected_model)
+                except LLMConnectionError as exc:
+                    st.error(str(exc), icon="🔌")
+                    result_markdown = None
+                except LLMGenerationError as exc:
+                    st.error(str(exc), icon="😥")
+                    result_markdown = None
 
-        with st.spinner("메모를 정리하고 있어요... 🩷"):
-            try:
-                result_markdown = summarize_meeting(transcript, model=selected_model)
-            except OllamaConnectionError as exc:
-                st.error(str(exc), icon="🔌")
-                return
-            except OllamaGenerationError as exc:
-                st.error(str(exc), icon="😥")
-                return
+            if result_markdown:
+                # 결과와 컨텍스트를 세션에 저장해둔다 — 채팅 입력 등 다른 위젯이 이후에
+                # rerun을 일으켜도(summarize_clicked가 다시 False가 되어도) 결과가
+                # 화면에서 사라지지 않도록 "버튼 클릭 여부"가 아니라 "저장된 결과 유무"로 그린다.
+                st.session_state["last_result_markdown"] = result_markdown
+                st.session_state["last_transcript"] = transcript
+                st.session_state["qa_history"] = []  # 새 회의록이면 이전 대화는 초기화
 
+    if st.session_state.get("last_result_markdown"):
         st.write("")
-        render_results(result_markdown)
+        render_results(st.session_state["last_result_markdown"])
+        render_qa_chat(st.session_state["last_transcript"], selected_model)
 
 
 if __name__ == "__main__":

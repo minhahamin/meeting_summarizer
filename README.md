@@ -22,15 +22,39 @@
 | LLM | Ollama (로컬 실행, 예: `llama3.2`, `qwen2.5`, `gemma3` 등) |
 | 통신 | `requests`로 `http://localhost:11434` 직접 호출 |
 
+## AI 제공자(provider) 전환
+
+`ai.py`는 특정 AI 제공자에 종속되지 않도록 `LLMClient` 인터페이스로 추상화돼
+있습니다. `app.py`는 `summarize_meeting()` 하나만 호출하고, 실제로 어떤
+제공자를 쓸지는 `MEMOMATE_PROVIDER` 환경변수가 결정합니다.
+
+| 값 | 클라이언트 | 용도 |
+|---|---|---|
+| `ollama` (기본값) | `OllamaClient` | 로컬 개발 — API Key 불필요 |
+| `gemini` | `GeminiClient` | 배포 — `pip install google-genai` + `GEMINI_API_KEY` 필요 |
+
+배포 시 전환 방법:
+
+```bash
+pip install google-genai
+export MEMOMATE_PROVIDER=gemini
+export GEMINI_API_KEY=your-api-key-here
+```
+
+`app.py`나 `prompts.py`는 전혀 건드릴 필요가 없습니다.
+
 ## 프로젝트 구조
 
 ```
 meeting_summarizer/
 ├── app.py                  # Streamlit UI, 결과 파싱 및 메모 카드 렌더링
-├── ai.py                   # Ollama 호출 (연결/타임아웃/모델 오류 예외 처리)
+├── ai.py                   # LLMClient 추상화 (OllamaClient / GeminiClient)
 ├── prompts.py               # 요약 프롬프트 템플릿
+├── image_export.py          # 결과를 핑크 메모 카드 PNG로 렌더링
 ├── requirements.txt
 ├── README.md
+├── public/
+│   └── img/                 # 타이틀 마스코트 이미지
 └── .streamlit/
     └── config.toml          # 핑크 파스텔 테마
 ```

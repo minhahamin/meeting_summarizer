@@ -21,7 +21,9 @@ PADDING = 40
 CARD_PADDING = 24
 CARD_GAP = 20
 LINE_HEIGHT = 30
-TITLE_AREA_HEIGHT = 90
+TITLE_LINE_HEIGHT = 40
+SUBTITLE_LINE_HEIGHT = 26
+TITLE_SUBTITLE_GAP = 12
 
 # Windows(맑은 고딕) / macOS / Linux(나눔고딕) 순으로 한글 지원 폰트를 찾는다.
 _FONT_CANDIDATES_REGULAR = [
@@ -117,8 +119,16 @@ def _build_blocks(sections: dict[str, str], action_rows: list[list[str]]) -> lis
     ]
 
 
-def render_summary_image(sections: dict[str, str], action_rows: list[list[str]]) -> bytes:
-    """회의 요약 결과를 핑크 메모 카드 스타일의 PNG 이미지 바이트로 렌더링한다."""
+def render_summary_image(
+    sections: dict[str, str],
+    action_rows: list[list[str]],
+    meeting_title: str | None = None,
+) -> bytes:
+    """회의 요약 결과를 핑크 메모 카드 스타일의 PNG 이미지 바이트로 렌더링한다.
+
+    meeting_title이 주어지면(AI가 생성한 회의 제목) 이미지 맨 위 큰 제목으로 쓰고,
+    없으면 "회의 메모"로 대체한다.
+    """
     font_title = _load_font(_FONT_CANDIDATES_BOLD, 32)
     font_heading = _load_font(_FONT_CANDIDATES_BOLD, 21)
     font_body = _load_font(_FONT_CANDIDATES_REGULAR, 17)
@@ -126,16 +136,22 @@ def render_summary_image(sections: dict[str, str], action_rows: list[list[str]])
     measure_draw = ImageDraw.Draw(Image.new("RGB", (10, 10)))
     max_text_width = CANVAS_WIDTH - 2 * PADDING - 2 * CARD_PADDING - 18  # 아이콘 원 만큼 빼기
 
+    display_title = (meeting_title or "").strip() or "회의 메모"
+    title_lines = _wrap_line(display_title, font_title, CANVAS_WIDTH - 2 * PADDING, measure_draw)
+    title_area_height = (
+        len(title_lines) * TITLE_LINE_HEIGHT + TITLE_SUBTITLE_GAP + SUBTITLE_LINE_HEIGHT
+    )
+
     blocks = _build_blocks(sections, action_rows)
 
     prepared_blocks: list[tuple[str, list[str], int]] = []
-    total_height = PADDING + TITLE_AREA_HEIGHT
-    for title, raw_lines in blocks:
+    total_height = PADDING + title_area_height
+    for card_title, raw_lines in blocks:
         wrapped: list[str] = []
         for raw_line in raw_lines:
             wrapped.extend(_wrap_line(raw_line, font_body, max_text_width, measure_draw))
         card_height = CARD_PADDING * 2 + 34 + len(wrapped) * LINE_HEIGHT
-        prepared_blocks.append((title, wrapped, card_height))
+        prepared_blocks.append((card_title, wrapped, card_height))
         total_height += card_height + CARD_GAP
 
     total_height += PADDING
@@ -143,16 +159,19 @@ def render_summary_image(sections: dict[str, str], action_rows: list[list[str]])
     image = Image.new("RGB", (CANVAS_WIDTH, total_height), BG_COLOR)
     draw = ImageDraw.Draw(image)
 
-    draw.text((PADDING, PADDING), "MemoMate AI — 회의 메모", font=font_title, fill=TEXT_COLOR)
+    title_y = PADDING
+    for line in title_lines:
+        draw.text((PADDING, title_y), line, font=font_title, fill=TEXT_COLOR)
+        title_y += TITLE_LINE_HEIGHT
     draw.text(
-        (PADDING, PADDING + 44),
-        "회의록을 귀여운 메모처럼 정리했어요.",
+        (PADDING, title_y + TITLE_SUBTITLE_GAP),
+        "MemoMate AI가 정리한 회의 메모예요",
         font=font_body,
         fill=MUTED_COLOR,
     )
 
-    y = PADDING + TITLE_AREA_HEIGHT
-    for title, wrapped, card_height in prepared_blocks:
+    y = PADDING + title_area_height
+    for card_title, wrapped, card_height in prepared_blocks:
         card_box = (PADDING, y, CANVAS_WIDTH - PADDING, y + card_height)
         draw.rounded_rectangle(card_box, radius=18, fill=CARD_COLOR, outline=BORDER_COLOR, width=2)
 
@@ -166,7 +185,7 @@ def render_summary_image(sections: dict[str, str], action_rows: list[list[str]])
             (text_x, dot_y, text_x + dot_diameter, dot_y + dot_diameter),
             fill=ACCENT_COLOR,
         )
-        draw.text((text_x + dot_diameter + 8, text_y), title, font=font_heading, fill=TEXT_COLOR)
+        draw.text((text_x + dot_diameter + 8, text_y), card_title, font=font_heading, fill=TEXT_COLOR)
         text_y += 34
 
         for line in wrapped:
