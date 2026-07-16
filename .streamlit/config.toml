@@ -1,0 +1,18 @@
+[theme]
+base = "light"
+
+primaryColor = "#FF8FB1"
+backgroundColor = "#FFF7FA"
+secondaryBackgroundColor = "#FFD6E7"
+textColor = "#444444"
+borderColor = "#F6C7D8"
+linkColor = "#FF8FB1"
+linkUnderline = false
+
+baseRadius = "large"
+buttonRadius = "full"
+showWidgetBorder = true
+
+font = "'Gowun Dodum':https://fonts.googleapis.com/css2?family=Gowun+Dodum&display=swap"
+headingFont = "'Jua':https://fonts.googleapis.com/css2?family=Jua&display=swap"
+baseFontSize = 16
